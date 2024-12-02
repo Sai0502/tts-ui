@@ -1,7 +1,7 @@
-# -*- coding: utf-8 -*-
 import sys
 import os
 import re
+import time
 import asyncio
 from PyQt5.QtWidgets import (
     QApplication,
@@ -54,32 +54,42 @@ def split_text(text, max_length=MAX_SEGMENT_LENGTH):
         segments.append(current_segment.strip())
     return segments
 
-async def process_segment(segment, voice):
+async def process_segment(segment, voice, retries=3, delay=2):
     """
-    合成单个文本段的语音
+    合成单个文本段的语音，并提供重试机制
     """
-    communicate = edge_tts.Communicate(segment, voice)
-    segment_audio = b""
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            segment_audio += chunk["data"]
-    return segment_audio
+    for attempt in range(retries):
+        try:
+            communicate = edge_tts.Communicate(segment, voice)
+            segment_audio = b""
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    segment_audio += chunk["data"]
+            
+            # 如果成功生成音频
+            if segment_audio:
+                return segment_audio
+            else:
+                raise Exception("No audio data received")
+        except Exception as e:
+            print(f"Processing segment: {segment}...")  # 打印段落的前30个字符（作为调试信息）
+            if attempt < retries - 1:
+                print(f"Error generating audio for segment. Retrying {attempt + 1}/{retries}...")
+                time.sleep(delay)  # 等待一段时间后重试
+            else:
+                print(f"Failed to generate audio after {retries} attempts: {e}")
+                return None  # 返回 None，表示音频生成失败
 
 def preprocess_text(text):
     """
     对文本进行预处理，处理特殊符号和格式问题
     """
-    # 替换特殊符号，支持 ︰、:、：
-    text = re.sub(r"([0-9]+\.[0-9]+)[︰:：]([0-9]+)", lambda m: f"{m.group(1).replace('.', '点')}比{m.group(2)}", text)  # 1.5︰1 -> 一点五比一
-    # text = re.sub(r"([0-9]+\.[0-9]+)[︰:：]([0-9]+)", r"\1比\2", text)  # 1.5︰1 -> 1.5比1
-    text = re.sub(r"([0-9]+)[︰:：]([0-9]+)", r"\1比\2", text)          # 2︰1 -> 2比1
-    # 对括号内的表达式进行处理，例如 (69+17)︰41 -> 六十九加十七比四十一，支持 () 和 （）
+    text = re.sub(r"([0-9]+)[︰:：]([0-9]+)", r"\1比\2", text)  # 2︰1 -> 2比1
     text = re.sub(
         r"[（(]([0-9]+)\+([0-9]+)[）)][︰:：]([0-9]+)",
         lambda m: f"{m.group(1)}加{m.group(2)}比{m.group(3)}",
         text,
     )
-    # 对小数点进行处理，明确小数的朗读，限制后面的数字为独立部分
     text = re.sub(r"(?<!\d)(0|[1-9])\.(\d+)(?=\s|︰|:|：|$)", r"\1点\2", text)  # 0.8 -> 零点八, 2.84 -> 二点八四
     return text
 
@@ -96,15 +106,22 @@ async def run_tts(text, voice, progress_callback, finished_callback):
             if segment.strip():  # 处理非空段落
                 progress_callback(i + 1, total_segments)  # 更新进度
                 segment_audio = await process_segment(segment, voice)
-                combined_audio += segment_audio
-
+                if segment_audio:
+                    combined_audio += segment_audio
+                else:
+                    print(f"Warning: Segment {i + 1} failed to generate audio.")  # 如果没有音频数据则打印警告
+                print(f"Finished segment {i + 1}/{total_segments}")  # 打印处理进度
+        
         finished_callback("转录完成，音频合并中...")
         with open(OUTPUT_FILE, "wb") as f:
             f.write(combined_audio)
+        print(f"Audio saved to {OUTPUT_FILE} successfully.")
     except Exception as e:
         finished_callback(f"出现意外错误：{e}")
+        print(f"Error: {e}")
         return
     play_completion_sound()  # 播放完成提示音
+
 
 def play_completion_sound():
     os.system("afplay /System/Library/Sounds/Glass.aiff")  # 完成后的提示音
