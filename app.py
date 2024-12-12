@@ -25,12 +25,20 @@ desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
 OUTPUT_FILE = os.path.join(desktop_path, "output.mp3")
 
 DEFAULT_VOICE = {
+    "晓晓": "zh-CN-XiaoxiaoNeural",
     "云夏": "zh-CN-YunxiaNeural",
     "云健": "zh-CN-YunjianNeural",
     "云扬": "zh-CN-YunyangNeural",
-    "晓晓": "zh-CN-XiaoxiaoNeural",
     "晓伊": "zh-CN-XiaoyiNeural",
     "云希": "zh-CN-YunxiNeural",
+    "AndrewMultilingual": "en-US-AndrewMultilingualNeural",
+    "AvaMultilingual": "en-US-AvaMultilingualNeural",
+    "BrianMultilingual": "en-US-BrianMultilingualNeural",
+    "EmmaMultilingual": "en-US-EmmaMultilingualNeural",
+    "Emma": "en-US-EmmaNeural",
+    "Jenny": "en-US-JennyNeural",
+    "Michelle": "en-US-MichelleNeural",
+    "Steffan": "en-US-SteffanNeural",
 }
 
 MAX_SEGMENT_LENGTH = 100  # 设置每个文本段的最大长度
@@ -82,16 +90,37 @@ async def process_segment(segment, voice, retries=3, delay=2):
 
 def preprocess_text(text):
     """
-    对文本进行预处理，处理特殊符号和格式问题
+    对文本进行预处理，去掉自然段内的空格，并保留段与段之间的空格。
     """
-    text = re.sub(r"([0-9]+)[︰:：]([0-9]+)", r"\1比\2", text)  # 2︰1 -> 2比1
+    # 先对比值和数字的格式进行处理
+    text = re.sub(r"([0-9]+)[︰:：]([0-9]+)", r"\1比\2", text)
     text = re.sub(
         r"[（(]([0-9]+)\+([0-9]+)[）)][︰:：]([0-9]+)",
         lambda m: f"{m.group(1)}加{m.group(2)}比{m.group(3)}",
         text,
     )
-    text = re.sub(r"(?<!\d)(0|[1-9])\.(\d+)(?=\s|︰|:|：|$)", r"\1点\2", text)  # 0.8 -> 零点八, 2.84 -> 二点八四
-    return text
+    text = re.sub(r"(?<!\d)(0|[1-9])\.(\d+)(?=\s|︰|:|：|$)", r"\1点\2", text)
+
+    # 分段处理
+    paragraphs = text.split("\n")  # 按段落分割
+    processed_paragraphs = []
+    for paragraph in paragraphs:
+        if paragraph.strip():  # 非空段落
+            # 处理中文之间的空格
+            paragraph = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", paragraph)
+            # 确保中英文之间有空格
+            paragraph = re.sub(r"(?<=[\u4e00-\u9fff])\s*(?=[a-zA-Z])", " ", paragraph)
+            paragraph = re.sub(r"(?<=[a-zA-Z])\s*(?=[\u4e00-\u9fff])", " ", paragraph)
+            # 保留英文单词之间的空格（避免破坏正常的空格）
+            paragraph = re.sub(r"(?<=[a-zA-Z])\s+(?=[a-zA-Z])", " ", paragraph)
+            processed_paragraphs.append(paragraph.strip())
+        else:  # 空行保留
+            processed_paragraphs.append("")
+        print(processed_paragraphs)
+
+    # 将段落重新组合，保留段间空行
+    return "\n".join(processed_paragraphs)
+
 
 async def run_tts(text, voice, progress_callback, finished_callback):
     # 预处理文本，解决“：”比值符号读不准的问题
