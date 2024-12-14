@@ -116,7 +116,7 @@ def preprocess_text(text):
             processed_paragraphs.append(paragraph.strip())
         else:  # 空行保留
             processed_paragraphs.append("")
-        print(processed_paragraphs)
+        # print(processed_paragraphs)
 
     # 将段落重新组合，保留段间空行
     return "\n".join(processed_paragraphs)
@@ -139,7 +139,7 @@ async def run_tts(text, voice, progress_callback, finished_callback):
                     combined_audio += segment_audio
                 else:
                     print(f"Warning: Segment {i + 1} failed to generate audio.")  # 如果没有音频数据则打印警告
-                print(f"Finished segment {i + 1}/{total_segments}")  # 打印处理进度
+                # print(f"Finished segment {i + 1}/{total_segments}")  # 打印处理进度
         
         finished_callback("转录完成，音频合并中...")
         with open(OUTPUT_FILE, "wb") as f:
